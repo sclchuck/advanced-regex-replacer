@@ -1,7 +1,5 @@
 # Regex Replacer
 
-[![Version](https://vsmarketplacebadge.apphb.com/version/your-publisher.regex-replacer.svg)](https://marketplace.visualstudio.com/items?itemName=your-publisher.regex-replacer)
-[![Installs](https://vsmarketplacebadge.apphb.com/installs/your-publisher.regex-replacer.svg)](https://marketplace.visualstudio.com/items?itemName=your-publisher.regex-replacer)
 
 A VSCode extension for advanced regex search and programmable replacement in files or folders. It provides a dedicated sidebar panel for managing search scopes, viewing matches with previews, and selectively replacing content. Supports multiline searches, JS-eval in replacements, and more.
 
@@ -54,7 +52,7 @@ Alternatively, download the `.vsix` from releases and install via "Install from 
 5. **Jump to Match**: Click a match in the list to open the file at the exact location.
 
 **Screenshot (截图):**  
-![Sidebar Panel](readme/1.jpg)  
+![Sidebar Panel](https://raw.githubusercontent.com/sclchuck/advanced-regex-replacer/refs/heads/master/readme/1.jpg)  
 
 
 ---

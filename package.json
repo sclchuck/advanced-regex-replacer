@@ -1,11 +1,13 @@
 {
-  "name": "regex-replacer",
-  "displayName": "Regex Replacer",
+  "name": "advance-regex-replacer",
+  "displayName": "Advance Regex Replacer",
   "description": "Powerful regex search & programmable replace directly in the sidebar",
-  "version": "0.1.0",
+  "publisher": "SCLChuck",
+  "version": "0.1.1",
   "engines": {
     "vscode": "^1.85.0"
   },
+  "icon": "resources/icon.png",
   "categories": ["Other"],
   "activationEvents": ["onView:regexReplacer.view"],
   "main": "./out/extension.js",
@@ -51,5 +53,9 @@
     "@types/vscode": "^1.85.0",
     "@types/node": "20.x",
     "typescript": "^5.3.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sclchuck/advanced-regex-replacer.git"
   }
 }
