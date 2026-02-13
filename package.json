@@ -1,0 +1,55 @@
+{
+  "name": "regex-replacer",
+  "displayName": "Regex Replacer",
+  "description": "Powerful regex search & programmable replace directly in the sidebar",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": ["onView:regexReplacer.view"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "regex-replacer-container",
+          "title": "Regex Replacer",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "regex-replacer-container": [
+        {
+          "id": "regexReplacer.view",
+          "name": "Regex Replacer",
+          "type": "webview"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "regexReplacer.search",
+        "title": "Search with Regex (from explorer)"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "regexReplacer.search",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "20.x",
+    "typescript": "^5.3.3"
+  }
+}
