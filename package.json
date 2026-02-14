@@ -3,10 +3,11 @@
   "displayName": "Advance Regex Replacer",
   "description": "Powerful regex search & programmable replace directly in the sidebar",
   "publisher": "SCLChuck",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "engines": {
     "vscode": "^1.85.0"
   },
+  "l10n": "./l10n",
   "icon": "resources/icon.png",
   "categories": ["Other"],
   "activationEvents": ["onView:regexReplacer.view"],
