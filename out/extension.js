@@ -15,13 +15,18 @@ class RegexReplacerProvider {
         this.includeActiveFile = true; // 默认选中
         this.isSearching = false; // 搜索状态
         this.abortController = null; // 取消控制器
+        // UI 状态字段，用于恢复视图
+        this.searchPattern = "";
+        this.searchFlags = "g";
+        this.previewOriginal = "";
+        this.previewReplaced = "";
     }
     resolveWebviewView(webviewView) {
         this._view = webviewView;
         webviewView.webview.options = { enableScripts: true };
         webviewView.webview.html = this.getHtml();
-        // 初始化发送空列表/默认状态
-        this.initDefaultTarget();
+        // 恢复完整状态（targets, matches, 输入框, preview）
+        this.restoreViewState();
         webviewView.webview.onDidReceiveMessage(async (msg) => {
             switch (msg.command) {
                 case "addFile":
@@ -50,7 +55,7 @@ class RegexReplacerProvider {
                     this.cancelSearch();
                     break;
                 case "replace":
-                    await this.doReplace();
+                    await this.doReplace(msg.replace, msg.flags);
                     break;
                 case "toggleMatch": {
                     const m = this.matches.find((x) => x.id === msg.id);
@@ -58,6 +63,15 @@ class RegexReplacerProvider {
                         m.checked = msg.checked;
                     break;
                 }
+                case "invertMatches":
+                    this.invertMatches();
+                    break;
+                case "selectAllMatches":
+                    this.setAllMatchesChecked(true);
+                    break;
+                case "unselectAllMatches":
+                    this.setAllMatchesChecked(false);
+                    break;
                 case "openMatch": {
                     const match = this.matches.find((x) => x.id === msg.id);
                     if (match) {
@@ -65,14 +79,36 @@ class RegexReplacerProvider {
                         const editor = await vscode.window.showTextDocument(doc);
                         editor.revealRange(match.range, vscode.TextEditorRevealType.InCenter);
                         editor.selection = new vscode.Selection(match.range.start, match.range.end);
+                        const replaced = this.computeReplacementWithTemplate(match.groups, msg.replace || this.replaceTemplate, msg.flags || (this.searchRegex?.flags ?? ""));
+                        // 保存 preview 状态用于恢复
+                        this.previewOriginal = match.original;
+                        this.previewReplaced = replaced;
+                        this._view?.webview.postMessage({
+                            command: "updatePreview",
+                            original: this.previewOriginal,
+                            replaced: this.previewReplaced,
+                        });
                     }
                     break;
                 }
             }
         });
     }
-    initDefaultTarget() {
+    restoreViewState() {
         this.postTargets();
+        this.postMatches();
+        this.postSearchStatus(this.isSearching);
+        this._view?.webview.postMessage({
+            command: "restoreInputs",
+            regex: this.searchPattern,
+            replace: this.replaceTemplate,
+            flags: this.searchFlags,
+        });
+        this._view?.webview.postMessage({
+            command: "updatePreview",
+            original: this.previewOriginal,
+            replaced: this.previewReplaced,
+        });
     }
     async addTargets(isFile) {
         const uris = await vscode.window.showOpenDialog({
@@ -142,6 +178,9 @@ class RegexReplacerProvider {
             vscode.window.showWarningMessage(vscode.l10n.t("msg.searchInProgress"));
             return;
         }
+        // 保存 UI 状态用于恢复
+        this.searchPattern = regexStr;
+        this.searchFlags = flags;
         try {
             this.searchRegex = new RegExp(regexStr, flags);
         }
@@ -341,8 +380,11 @@ class RegexReplacerProvider {
         }
         return controlCharCount / limit > 0.15;
     }
-    computeReplacement(groups) {
-        let result = this.replaceTemplate;
+    computeReplacementWithTemplate(groups, replaceTemplate, flags = "") {
+        let result = replaceTemplate;
+        if (flags.includes("m")) {
+            result = result.replace(/\\n/g, "\n");
+        }
         result = result.replace(/\$\$\{([^}]+)\}\$\$/g, (_, expr) => {
             try {
                 const safeX = [""];
@@ -355,6 +397,21 @@ class RegexReplacerProvider {
             }
         });
         return result;
+    }
+    computeReplacement(groups) {
+        return this.computeReplacementWithTemplate(groups, this.replaceTemplate, this.searchRegex?.flags ?? "");
+    }
+    invertMatches() {
+        for (const m of this.matches) {
+            m.checked = !m.checked;
+        }
+        this.postMatches();
+    }
+    setAllMatchesChecked(checked) {
+        for (const m of this.matches) {
+            m.checked = checked;
+        }
+        this.postMatches();
     }
     postMatches() {
         this._view?.webview.postMessage({
@@ -370,12 +427,15 @@ class RegexReplacerProvider {
                     ? m.replaced.slice(0, 253) + "..."
                     : m.replaced,
                 fullOriginal: m.original,
-                fullReplaced: m.replaced,
                 checked: m.checked,
             })),
         });
     }
-    async doReplace() {
+    async doReplace(replaceStr, flags) {
+        if (typeof replaceStr === "string") {
+            this.replaceTemplate = replaceStr;
+        }
+        const effectiveFlags = flags ?? (this.searchRegex?.flags ?? "");
         const toReplace = this.matches.filter((m) => m.checked);
         if (toReplace.length === 0) {
             vscode.window.showInformationMessage(vscode.l10n.t("msg.noSelectedMatches"));
@@ -392,14 +452,23 @@ class RegexReplacerProvider {
             const edits = new vscode.WorkspaceEdit();
             byFile[fsPathStr].sort((a, b) => b.range.start.compareTo(a.range.start));
             for (const m of byFile[fsPathStr]) {
-                edits.replace(vscode.Uri.file(fsPathStr), m.range, m.replaced);
+                const replaced = this.computeReplacementWithTemplate(m.groups, this.replaceTemplate, effectiveFlags);
+                edits.replace(vscode.Uri.file(fsPathStr), m.range, replaced);
             }
             await vscode.workspace.applyEdit(edits);
             await doc.save();
         }
         vscode.window.showInformationMessage(vscode.l10n.t("msg.replacedCount", toReplace.length));
         this.matches = [];
+        // 清空 preview 状态
+        this.previewOriginal = "";
+        this.previewReplaced = "";
         this.postMatches();
+        this._view?.webview.postMessage({
+            command: "updatePreview",
+            original: "",
+            replaced: "",
+        });
     }
     addToScope(uri) {
         if (!this.targets.some((t) => t.fsPath === uri.fsPath)) {
@@ -431,6 +500,9 @@ class RegexReplacerProvider {
             matchesTitle: t("ui.matchesTitle"),
             searching: t("ui.searching"),
             cancel: t("ui.cancel"),
+            invert: t("ui.invertMatches"),
+            selectAll: t("ui.selectAll"),
+            unselectAll: t("ui.unselectAll"),
             previewTitle: t("ui.previewTitle"),
             previewBefore: t("ui.previewBefore"),
             previewAfter: t("ui.previewAfter"),
@@ -566,6 +638,9 @@ class RegexReplacerProvider {
             <h3 style="display:inline"><span id="matches-title"></span> (<span id="count">0</span>)</h3>
           </div>
           <div class="summary-right">
+            <button class="cancel-btn" id="select-all-matches"></button>
+            <button class="cancel-btn" id="unselect-all-matches"></button>
+            <button class="cancel-btn" id="invert-matches"></button>
             <span class="search-status" id="search-status"></span>
             <button class="cancel-btn" id="cancel-search" style="display:none"></button>
           </div>
@@ -583,6 +658,7 @@ class RegexReplacerProvider {
 
   <script>
     const vscode = acquireVsCodeApi();
+    const savedState = vscode.getState() || {};
 
     // i18n render
     document.getElementById('add-file').textContent = I18N.addFile;
@@ -608,10 +684,51 @@ class RegexReplacerProvider {
     document.getElementById('matches-title').textContent = I18N.matchesTitle;
     document.getElementById('search-status').textContent = I18N.searching;
     document.getElementById('cancel-search').textContent = I18N.cancel;
+    document.getElementById('select-all-matches').textContent = I18N.selectAll;
+    document.getElementById('unselect-all-matches').textContent = I18N.unselectAll;
+    document.getElementById('invert-matches').textContent = I18N.invert;
 
     document.getElementById('preview-title').textContent = I18N.previewTitle;
     document.getElementById('preview-before').textContent = I18N.previewBefore;
     document.getElementById('preview-after').textContent = I18N.previewAfter;
+
+    // 从本地状态恢复输入框内容
+    if (savedState.regex) document.getElementById('regex').value = savedState.regex;
+    if (savedState.replace) document.getElementById('replace').value = savedState.replace;
+    if (savedState.flags) {
+      document.getElementById('i').checked = savedState.flags.includes('i');
+      document.getElementById('m').checked = savedState.flags.includes('m');
+      document.getElementById('s').checked = savedState.flags.includes('s');
+    }
+    if (savedState.previewOriginal !== undefined) {
+      document.getElementById('before').textContent = savedState.previewOriginal;
+    }
+    if (savedState.previewReplaced !== undefined) {
+      document.getElementById('after').textContent = savedState.previewReplaced;
+    }
+
+    // 保存 UI 状态到本地存储
+    function saveUiState() {
+      let flags = 'g';
+      if (document.getElementById('i').checked) flags += 'i';
+      if (document.getElementById('m').checked) flags += 'm';
+      if (document.getElementById('s').checked) flags += 's';
+
+      vscode.setState({
+        regex: document.getElementById('regex').value,
+        replace: document.getElementById('replace').value,
+        flags,
+        previewOriginal: document.getElementById('before').textContent,
+        previewReplaced: document.getElementById('after').textContent,
+      });
+    }
+
+    // 监听输入框变化并保存状态
+    document.getElementById('regex').addEventListener('input', saveUiState);
+    document.getElementById('replace').addEventListener('input', saveUiState);
+    document.getElementById('i').addEventListener('change', saveUiState);
+    document.getElementById('m').addEventListener('change', saveUiState);
+    document.getElementById('s').addEventListener('change', saveUiState);
 
     // Update targets
     function updateTargets(targets, includeActiveFile) {
@@ -650,6 +767,9 @@ class RegexReplacerProvider {
     // Update matches
     function updateMatches(matches) {
       document.getElementById('count').textContent = matches.length;
+      document.getElementById('select-all-matches').disabled = matches.length === 0;
+      document.getElementById('unselect-all-matches').disabled = matches.length === 0;
+      document.getElementById('invert-matches').disabled = matches.length === 0;
       const container = document.getElementById('matches');
       container.innerHTML = '';
       matches.forEach(m => {
@@ -671,9 +791,21 @@ class RegexReplacerProvider {
 
         div.onclick = (e) => {
           if (e.target.type !== 'checkbox') {
-            vscode.postMessage({command:'openMatch', id:m.id});
+            const replace = document.getElementById('replace').value;
+
+            let flags = '';
+            if (document.getElementById('i').checked) flags += 'i';
+            if (document.getElementById('m').checked) flags += 'm';
+            if (document.getElementById('s').checked) flags += 's';
+            flags += 'g';
+
+            vscode.postMessage({
+              command: 'openMatch',
+              id: m.id,
+              replace,
+              flags
+            });
             document.getElementById('before').textContent = m.fullOriginal;
-            document.getElementById('after').textContent = m.fullReplaced;
           }
         };
 
@@ -717,8 +849,25 @@ class RegexReplacerProvider {
       vscode.postMessage({command:'search', regex, flags, replace});
     };
 
-    document.getElementById('replace-btn').onclick = () => vscode.postMessage({command:'replace'});
+    document.getElementById('replace-btn').onclick = () => {
+      const replace = document.getElementById('replace').value;
+
+      let flags = '';
+      if (document.getElementById('i').checked) flags += 'i';
+      if (document.getElementById('m').checked) flags += 'm';
+      if (document.getElementById('s').checked) flags += 's';
+      flags += 'g';
+
+      vscode.postMessage({
+        command: 'replace',
+        replace,
+        flags
+      });
+    };
     document.getElementById('cancel-search').onclick = () => vscode.postMessage({command:'cancelSearch'});
+    document.getElementById('select-all-matches').onclick = () => vscode.postMessage({command:'selectAllMatches'});
+    document.getElementById('unselect-all-matches').onclick = () => vscode.postMessage({command:'unselectAllMatches'});
+    document.getElementById('invert-matches').onclick = () => vscode.postMessage({command:'invertMatches'});
 
     // Receive messages
     window.addEventListener('message', e => {
@@ -726,6 +875,20 @@ class RegexReplacerProvider {
       if (msg.command === 'updateTargets') updateTargets(msg.targets, msg.includeActiveFile);
       if (msg.command === 'updateMatches') updateMatches(msg.matches);
       if (msg.command === 'updateSearchStatus') updateSearchStatus(msg.isSearching);
+      if (msg.command === 'updatePreview') {
+        document.getElementById('before').textContent = msg.original;
+        document.getElementById('after').textContent = msg.replaced;
+        saveUiState();
+      }
+      if (msg.command === 'restoreInputs') {
+        document.getElementById('regex').value = msg.regex || '';
+        document.getElementById('replace').value = msg.replace || '';
+        const flags = msg.flags || 'g';
+        document.getElementById('i').checked = flags.includes('i');
+        document.getElementById('m').checked = flags.includes('m');
+        document.getElementById('s').checked = flags.includes('s');
+        saveUiState();
+      }
     });
   </script>
 </body>
@@ -734,7 +897,11 @@ class RegexReplacerProvider {
 }
 function activate(context) {
     const provider = new RegexReplacerProvider(context);
-    context.subscriptions.push(vscode.window.registerWebviewViewProvider("regexReplacer.view", provider));
+    context.subscriptions.push(vscode.window.registerWebviewViewProvider("regexReplacer.view", provider, {
+        webviewOptions: {
+            retainContextWhenHidden: true,
+        },
+    }));
     context.subscriptions.push(vscode.commands.registerCommand("regexReplacer.addToScope", (uri) => {
         provider.addToScope(uri);
     }));
