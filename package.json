@@ -3,14 +3,18 @@
   "displayName": "Advance Regex Replacer",
   "description": "Powerful regex search & programmable replace directly in the sidebar",
   "publisher": "SCLChuck",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "engines": {
     "vscode": "^1.85.0"
   },
   "l10n": "./l10n",
   "icon": "resources/icon.png",
-  "categories": ["Other"],
-  "activationEvents": ["onView:regexReplacer.view"],
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:regexReplacer.view"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "viewsContainers": {
@@ -51,9 +55,10 @@
     "watch": "tsc -watch -p ./"
   },
   "devDependencies": {
-    "@types/vscode": "^1.85.0",
     "@types/node": "20.x",
-    "typescript": "^5.3.3"
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.3",
+    "vsce": "^2.15.0"
   },
   "repository": {
     "type": "git",
